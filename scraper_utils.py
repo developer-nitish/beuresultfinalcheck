@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 import pandas as pd
 import time
-from xhtml2pdf import pisa
+# from xhtml2pdf import pisa
 from typing import Optional, Dict, Any, List
 
 # --- Core Scraper Logic (Based on your successful GET requests) ---
@@ -100,11 +100,11 @@ def show_analytics(df):
 HTML_TEMPLATE = """...""" # Simplified for context
 
 def export_to_pdf(df, output_file):
-    # NOTE: Function body omitted for brevity, assuming it uses pisa correctly
+    # PDF generation ko filhaal disable kiya gaya hai
+    st.error("❌ PDF export is temporarily disabled due to cloud deployment restrictions (xhtml2pdf issue).")
+    
+    # Iske bajaye, hum CSV file bana dete hain taaki download button kaam karta rahe
     try:
-        # Dummy HTML content to make pisa work
-        html_content = f"<html><body><h2>Result Report ({len(df)} Students)</h2>{df.to_html(index=False)}</body></html>"
-        with open(output_file, "w+b") as result_file:
-            pisa.CreatePDF(html_content, dest=result_file)
-    except NameError:
-        st.error("PDF generation failed. Check xhtml2pdf installation.")
+        df.to_csv(output_file, index=False, sep=',')
+    except Exception as e:
+        st.error(f"File export failed: {e}")
