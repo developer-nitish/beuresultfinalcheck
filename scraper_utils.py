@@ -101,7 +101,7 @@ HTML_TEMPLATE = """...""" # Simplified for context
 
 def export_to_pdf(df, output_file):
     # PDF generation ko filhaal disable kiya gaya hai
-    st.error("❌ PDF export is temporarily disabled due to cloud deployment restrictions (xhtml2pdf issue).")
+    st.error(" PDF export is temporarily disabled due to cloud deployment restrictions (xhtml2pdf issue).")
     
     # Iske bajaye, hum CSV file bana dete hain taaki download button kaam karta rahe
     try:
