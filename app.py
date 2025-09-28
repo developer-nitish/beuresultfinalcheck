@@ -1,142 +1,18 @@
-
-# import streamlit as st
-# import pandas as pd
-# from PIL import Image
-# import os
-# import sys
-
-# # --- Import ALL required functions from the utility file ---
-# # NOTE: All these functions will be defined in scraper_utils.py (next section)
-# from scraper_utils import (
-#     fetch_all_results,
-#     export_to_pdf,
-#     sort_by_current_cgpa,
-#     sort_by_latest_semester_grade,
-#     # show_analytics # Commented out to avoid the previous TypeError
-# )
-
-# # Ensure current directory logic is safe for Streamlit Cloud
-# try:
-#     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-# except:
-#     pass
-
-# # --- UI Setup ---
-# st.set_page_config(page_title="BEU Result Scraper (Direct Input)", layout="wide")
-# st.markdown(
-#     """
-#     <div style='text-align:center; padding:15px; background-color:#003366; color:white; border-radius:10px;'>
-#         <h2>Bihar Engineering University (BEU) Result Scraper</h2>
-#         <h3>Developed By Gec Aurangabad</h3>
-#     </div>
-#     """,
-#     unsafe_allow_html=True
-# )
-# st.title(" Direct Result Fetcher")
-
-
-# # --- Input Form ---
-# with st.form("result_form"):
-    
-#     # 1. Full URL Input (Crucial for Scraper to work)
-#     default_url = "https://results.beup.ac.in/ResultsBTech4thSem2024_B2022Pub.aspx?Sem=IV&RegNo="
-#     url_base = st.text_input(
-#         "🔗 Enter Full Result URL Template (must end with ?RegNo=)", 
-#         default_url
-#     )
-    
-#     # 2. Registration Number Range
-#     start_reg = st.number_input(" Start Registration Number", min_value=10000000000, step=1, value=22157147001, format="%d")
-#     end_reg = st.number_input(" End Registration Number", min_value=10000000000, step=1, value=22157147005, format="%d")
-
-#     st.markdown("---")
-    
-#     # 3. View/Export Options
-#     view_mode = st.selectbox("View Mode", options=["regno", "cgpa", "semester"], format_func=lambda x: {
-#         "regno": "Registration No. wise", "cgpa": "Sort by CGPA (High to Low)", "semester": "Sort by Latest Semester Grade"
-#     }[x])
-#     export_format = st.selectbox("Export Format", options=["pdf", "txt", "csv", "xlsx"], format_func=lambda x: x.upper())
-    
-#     submitted = st.form_submit_button(" Fetch Results")
-
-
-# # --- Submission Logic ---
-# if submitted:
-#     if not url_base.endswith("RegNo=") and not url_base.endswith("RollNo="):
-#         st.error(" कृपया URL Template को सही प्रारूप में दर्ज करें। यह `...aspx?RegNo=` पर समाप्त होना चाहिए।")
-#         st.stop()
-        
-#     if start_reg >= end_reg:
-#         st.error(" Start Registration No, End Registration No से कम होना चाहिए।")
-#         st.stop()
-    
-#     st.info("Fetching results... This might take some time depending on the range.")
-    
-#     # --- Full Scrape ---
-#     results = fetch_all_results(url_base, int(start_reg), int(end_reg))
-    
-#     if not results:
-#         st.error(" Data Not Found. Please verify the URL Template and Registration Numbers.")
-#         st.stop()
-
-#     df = pd.DataFrame(results)
-
-#     # 🌟 CRITICAL FIX: Convert CGPA to numeric before sorting 🌟
-#     # This prevents the sorting functions from failing due to string/text data.
-#     # 'errors="coerce"' replaces non-numeric values (like empty strings) with NaN.
-#     df["Sem Cur. CGPA"] = pd.to_numeric(df["Sem Cur. CGPA"], errors="coerce")
-
-
-#     # --- Sorting ---
-#     if view_mode == "cgpa":
-#         df = sort_by_current_cgpa(df)
-#     elif view_mode == "semester":
-#         df = sort_by_latest_semester_grade(df)
-
-#     st.success(f"Results fetched successfully! Total {len(df)} records found.")
-#     st.dataframe(df)
-#     # The analytics function is currently commented out in the imports and here.
-#     # To re-enable it, uncomment the imports and remove the TypeError by adding the numeric conversion there.
-
-
-#     # --- Export options ---
-#     export_path = f"results.{export_format}"
-#     # ... (Export saving logic from previous code) ...
-#     if export_format == "csv": df.to_csv(export_path, index=False)
-#     elif export_format == "xlsx": df.to_excel(export_path, index=False, engine="openpyxl")
-#     elif export_format == "txt": df.to_csv(export_path, sep="\t", index=False)
-#     elif export_format == "pdf": export_to_pdf(df, export_path)
-        
-#     with open(export_path, "rb") as f:
-#         st.download_button(label=f"Download {export_format.upper()}", data=f, file_name=export_path)
-            
-#     try: os.remove(export_path)
-#     except OSError: pass
-            
-#     st.markdown("---")
-#     st.markdown(
-#         "<div style='text-align:center; font-size:14px; color:grey;'>"
-#         "This tool relies on the public access method (GET request) used by the university. "
-#         "</div>",
-#         unsafe_allow_html=True
-#     )
-
-
-
+ 
 
 import streamlit as st
 import pandas as pd
 import os
 import sys
+import datetime
 
-# --- Import ALL required functions from the utility file ---
-# We are importing functions from scraper_utils.py (which must be in a separate file)
+# --- Import URL Config and Utility Functions ---
+from url_config import ALL_URL_TEMPLATES, SGPA_CGPA_HEADERS, build_final_api_url
 from scraper_utils import (
     fetch_all_results,
     sort_by_current_cgpa,
     sort_by_latest_semester_grade,
-    export_multi_sheet_excel,
-    SGPA_CGPA_HEADERS # Import the necessary constant
+    export_multi_sheet_excel
 )
 
 # --- Configuration and Setup ---
@@ -145,81 +21,59 @@ try:
 except:
     pass
 
-# --- Constants for Semester Data (Must match scraper_utils.py) ---
-SGPA_CGPA_HEADERS = [
-    "SGPA Sem I", "SGPA Sem II", "SGPA Sem III", "SGPA Sem IV",
-    "SGPA Sem V", "SGPA Sem VI", "SGPA Sem VII", "SGPA Sem VIII",
-    "Final CGPA"
-]
-
-#  FINAL LOGIC FOR GENERATING DYNAMIC URLS 🌟
-def generate_url_templates():
-    """Generates a comprehensive dictionary of all possible BEU result URLs based on batch and semester years."""
-    URL_TEMPLATES = {}
-    
-    # Generate Batches from 2019 to 2030 (as requested)
-    for start_year in range(2019, 2031):
-        batch_label = f"{start_year}-{start_year + 4} Batch"
-        URL_TEMPLATES[batch_label] = {}
-        
-        # Generate Semesters I to VIII
-        for sem_num in range(1, 9):
-            sem_roman = {1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII'}[sem_num]
-            
-            # Current year for the exam in the URL string
-            if sem_num in [1, 2]:
-                exam_year = start_year + 0 # Sem I, II generally in the starting year
-            elif sem_num in [3, 4]:
-                exam_year = start_year + 1 # Sem III, IV generally in the year after start
-            elif sem_num in [5, 6]:
-                exam_year = start_year + 2 # Sem V, VI generally two years after start
-            else:
-                exam_year = start_year + 3 # Sem VII, VIII generally three years after start
-
-            # Construct the dynamic URL part
-            sem_part = f"BTech{sem_num}thSem{exam_year}_B{start_year}Pub"
-            
-            # Add to the dictionary (using the common /ResultsBTech pattern)
-            URL_TEMPLATES[batch_label][f"Sem {sem_roman}"] = f"https://results.beup.ac.in/Results{sem_part}.aspx?Sem={sem_roman}&RegNo="
-
-    return URL_TEMPLATES
-
-ALL_URL_TEMPLATES = generate_url_templates()
-# -----------------------------------------------------------------
-
-
 # --- UI Setup ---
 st.set_page_config(page_title="BEU Result Scraper (Direct Input)", layout="wide")
 st.markdown(
     """
     <div style='text-align:center; padding:15px; background-color:#003366; color:white; border-radius:10px;'>
         <h2>Bihar Engineering University (BEU) Result Scraper</h2>
-        <h3>Developed By Gec Aurangabad (Dynamic Batch & Semester)</h3>
+        <h3>Developed By Gec Aurangabad (Final Working Version)</h3>
     </div>
     """,
     unsafe_allow_html=True
 )
-st.title(" Welcome TO GEC Aurangabad Result Scraper")
+st.title(" 🤖 Direct Result Fetcher (Manual Year Control)")
 
 
 # --- Input Form ---
 with st.form("result_form"):
     
-    # 🌟 NEW DYNAMIC DROPDOWNS 🌟
-    selected_batch = st.selectbox("Select Batch", options=list(ALL_URL_TEMPLATES.keys()))
+    # 🌟 NEW INPUTS: BATCH, SEMESTER, AND YEAR 🌟
+    col_batch, col_sem = st.columns(2)
+    with col_batch:
+        selected_batch = st.selectbox("Select Batch", options=list(ALL_URL_TEMPLATES.keys()), index=5) 
     
-    # Get semesters available for the selected batch
-    available_semesters = list(ALL_URL_TEMPLATES[selected_batch].keys())
-    selected_semester = st.selectbox("Select Semester", options=available_semesters)
+    with col_sem:
+        available_semesters = list(ALL_URL_TEMPLATES[selected_batch].keys())
+        selected_semester = st.selectbox("Select Semester", options=available_semesters, index=0) 
     
-    # Automatically set the URL based on selection
-    url_base = ALL_URL_TEMPLATES[selected_batch][selected_semester]
+    # --- Manual Exam Year Input (Defaults to next year for new batch) ---
+    start_year = int(selected_batch.split('-')[0])
+    # The 'next year' logic is safer than hardcoding 2025
+    default_exam_year = start_year + 1 
+    
+    exam_year = st.number_input(
+        " **Enter Exam Year (e.g., 2024)**", 
+        min_value=2019, 
+        max_value=datetime.date.today().year + 2, 
+        value=default_exam_year,
+        step=1
+    )
+    
+    # Get the base template data
+    template_data = ALL_URL_TEMPLATES[selected_batch][selected_semester]
+    
+    # Construct the final API URL using manual year (FIXED API BUILD HERE)
+    url_base = build_final_api_url(template_data, exam_year)
 
     st.markdown("---")
-    st.info(f" URL (Check if live): `{url_base}`")
-    
-    start_reg = st.number_input(" Start Registration Number", min_value=10000000000, step=1, value=22157147001, format="%d")
-    end_reg = st.number_input(" End Registration Number", min_value=10000000000, step=1, value=22157147005, format="%d")
+    st.info(f" **API Template Used (Selected):** `{url_base}`")
+    st.warning("**Note:** This API link must be **active** on the BEU server for the scrape to succeed.")
+
+
+    # Registration numbers
+    start_reg = st.number_input(" Start Registration Number", min_value=10000000000, step=1, value=24157147001, format="%d")
+    end_reg = st.number_input(" End Registration Number", min_value=10000000000, step=1, value=24157147005, format="%d")
 
     st.markdown("---")
     
@@ -239,7 +93,7 @@ with st.form("result_form"):
     # Export dropdown for multi-sheet Excel
     export_action = st.selectbox("Export Action", options=["Download Current View (CSV)", "Generate Multi-Sheet Excel (XLSX)"])
     
-    submitted = st.form_submit_button("  Fetch Results and View")
+    submitted = st.form_submit_button(" 🚀 Fetch Results and View")
 
 
 # --- Submission Logic ---
@@ -247,7 +101,7 @@ if submitted:
     
     # --- Input Validation ---
     if start_reg >= end_reg:
-        st.error(" Start Registration No, End Registration No से कम होना चाहिए।")
+        st.error("Start Registration No, End Registration No से कम होना चाहिए।")
         st.stop()
     
     st.info("Fetching results... This might take some time depending on the range.")
@@ -281,7 +135,7 @@ if submitted:
         'Reg No', 'Name', 'Father', 'Mother', 'College', 'Course', 
         'Final CGPA', 'Back Paper Count'
     ]
-    desired_cols += list(SGPA_CGPA_HEADERS)
+    desired_cols += SGPA_CGPA_HEADERS
     
     # Detailed Subject Columns (Showing Code, Name, IA, ESE, Total, Grade for first 5 subjects)
     for i in range(1, 6): 
@@ -305,15 +159,11 @@ if submitted:
         passed_count = len(df[df['Back Paper Count'] == 0])
         avg_cgpa = df['CGPA'].mean()
         
-        st.markdown("###  Summary Analytics")
+        st.markdown(" Summary Analytics")
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Records Fetched", total_count)
         col2.metric("Pass Students (Zero Back)", passed_count)
-        
-        if not pd.isna(avg_cgpa):
-             col3.metric("Average CGPA", f"{avg_cgpa:.2f}")
-        else:
-             col3.metric("Average CGPA", "N/A")
+        col3.metric("Average CGPA", f"{avg_cgpa:.2f}" if not pd.isna(avg_cgpa) else "N/A")
 
     # --- 3. DISPLAY & EXPORT ---
     if not analytics_mode:

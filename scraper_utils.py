@@ -365,6 +365,503 @@
 
 
 
+# import requests
+# from bs4 import BeautifulSoup
+# from concurrent.futures import ThreadPoolExecutor
+# import streamlit as st
+# import pandas as pd
+# import time
+# from typing import Optional, Dict, Any, List
+
+# # --- Imports for Multi-Sheet Excel ---
+# import openpyxl
+# from openpyxl.utils.dataframe import dataframe_to_rows
+# # -------------------------------------
+
+# # --- Constants for Semester Data ---
+# SGPA_CGPA_HEADERS = [
+#     "SGPA Sem I", "SGPA Sem II", "SGPA Sem III", "SGPA Sem IV",
+#     "SGPA Sem V", "SGPA Sem VI", "SGPA Sem VII", "SGPA Sem VIII",
+#     "Final CGPA"
+# ]
+
+
+# # --- Core Scraper Logic (Requests/BS4) ---
+# def fetch_and_parse_result(base_url, registration_no, retries=1, backoff_factor=1):
+#     """Fetches result for a single registration number, extracts ALL details including subject marks and all semester SGPAs/CGPAs."""
+#     url = f"{base_url}{registration_no}" 
+#     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    
+#     for attempt in range(retries):
+#         try:
+#             response = requests.get(url, headers=headers, timeout=10)
+#             response.raise_for_status()
+#             soup = BeautifulSoup(response.text, "html.parser")
+            
+#             # 1. Check for success marker
+#             if not soup.select_one("#ContentPlaceHolder1_DataList1_RegistrationNoLabel_0"):
+#                  return None
+
+#             result = {
+#                 "Reg No": soup.select_one("#ContentPlaceHolder1_DataList1_RegistrationNoLabel_0").text.strip(),
+#                 "Name": soup.select_one("#ContentPlaceHolder1_DataList1_StudentNameLabel_0").text.strip(),
+#                 "Father": soup.select_one("#ContentPlaceHolder1_DataList1_FatherNameLabel_0").text.strip(),
+#                 "Mother": soup.select_one("#ContentPlaceHolder1_DataList1_MotherNameLabel_0").text.strip(),
+#                 "College": soup.select_one("#ContentPlaceHolder1_DataList1_CollegeNameLabel_0").text.strip(),
+#                 "Course": soup.select_one("#ContentPlaceHolder1_DataList1_CourseLabel_0").text.strip(),
+#                 "Back Paper Count": 0,
+#                 "Detailed Subjects List": [] 
+#             }
+            
+#             # --- 2. Extract All Semester SGPAs/CGPA (GridView3) ---
+#             sgpa_table = soup.select_one("#ContentPlaceHolder1_GridView3")
+            
+#             for header in SGPA_CGPA_HEADERS: result[header] = 'NA'
+#             result["CGPA"] = 'NA'
+
+#             if sgpa_table:
+#                 sgpa_values = sgpa_table.find_all("tr")[-1].find_all("td")
+                
+#                 if len(sgpa_values) >= 9:
+#                     for i, header in enumerate(SGPA_CGPA_HEADERS):
+#                          result[header] = sgpa_values[i].text.strip()
+                    
+#                     result["CGPA"] = result["Final CGPA"]
+            
+            
+#             # --- 3. Detailed Subject Tables Scraping (Including IA/ESE) ---
+            
+#             def extract_subjects_from_table(table_id, subject_type):
+#                 subjects = []
+#                 table = soup.select_one(f"#{table_id}")
+#                 if table:
+#                     rows = table.find_all("tr")[1:] 
+#                     for row in rows:
+#                         cols = row.find_all("td")
+#                         if len(cols) >= 8:
+#                             subjects.append({
+#                                 "Code": cols[0].text.strip(),
+#                                 "Name": cols[1].text.strip(),
+#                                 "Type": subject_type,
+#                                 "IA": cols[3].text.strip(), 
+#                                 "ESE": cols[2].text.strip(),
+#                                 "Total": cols[4].text.strip(),
+#                                 "Grade": cols[5].text.strip(),
+#                                 "Credit": cols[6].text.strip()
+#                             })
+#                 return subjects
+
+#             all_subjects = extract_subjects_from_table("ContentPlaceHolder1_GridView1", "Theory") 
+#             all_subjects += extract_subjects_from_table("ContentPlaceHolder1_GridView2", "Practical")
+            
+#             back_count = 0
+            
+#             # Flatten detailed subjects for the main DataFrame/Excel output
+#             for i, sub in enumerate(all_subjects):
+#                 result["Detailed Subjects List"].append(sub)
+                
+#                 # Add columns to main result for display
+#                 for key in ["Code", "Name", "Type", "IA", "ESE", "Total", "Grade", "Credit"]:
+#                     result[f"Sub{i+1} {key}"] = sub[key]
+                
+#                 if sub["Grade"].upper() == "F":
+#                     back_count += 1
+
+#             result["Back Paper Count"] = back_count
+            
+#             # Fill remaining columns up to 15 subjects 
+#             for i in range(len(all_subjects), 15):
+#                 for key in ["Code", "Name", "Type", "IA", "ESE", "Total", "Grade", "Credit"]:
+#                     result[f"Sub{i+1} {key}"] = ""
+            
+#             return result
+        
+#         except (requests.exceptions.RequestException, AttributeError, ValueError) as e:
+#             if attempt < retries - 1:
+#                 time.sleep(backoff_factor * (2 ** attempt))
+#             return None
+
+
+# def fetch_all_results(base_url, start_reg, end_reg):
+#     results = []
+#     reg_numbers = list(range(start_reg, end_reg + 1))
+#     MAX_WORKERS = min(10, len(reg_numbers)) 
+    
+#     progress_bar = st.progress(0)
+    
+#     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+#         futures = {executor.submit(fetch_and_parse_result, base_url, reg_no): reg_no for reg_no in reg_numbers}
+        
+#         for i, future in enumerate(futures):
+#             result = future.result()
+#             if result:
+#                 results.append(result)
+            
+#             progress_bar.progress((i + 1) / len(reg_numbers))
+            
+#     progress_bar.empty()
+#     return results
+
+
+# # --- Sorting Logic ---
+# def sort_by_current_cgpa(df):
+#     df["CGPA"] = pd.to_numeric(df["CGPA"], errors="coerce")
+#     return df.sort_values(by="CGPA", ascending=False, na_position='last')
+
+# def sort_by_latest_semester_grade(df):
+#     df_sorted = df.copy()
+    
+#     for header in reversed(SGPA_CGPA_HEADERS[:-1]): 
+#         df_sorted[header] = pd.to_numeric(df_sorted[header], errors='coerce')
+        
+#     latest_sgpa_column = None
+#     for header in reversed(SGPA_CGPA_HEADERS[:-1]):
+#         if not df_sorted[header].isna().all():
+#             latest_sgpa_column = header
+#             break
+            
+#     if latest_sgpa_column:
+#         return df_sorted.sort_values(by=latest_sgpa_column, ascending=False, na_position='last')
+#     else:
+#         return sort_by_current_cgpa(df)
+
+
+# # --- Multi-Sheet Excel Export Function ---
+# def export_multi_sheet_excel(df: pd.DataFrame, output_file: str):
+#     """
+#     Creates the multi-sheet Excel report with detailed breakdown matching your requirements.
+#     """
+#     st.info("Generating detailed multi-sheet Excel report (XLSX)...")
+    
+#     wb = openpyxl.Workbook()
+#     df_cleaned = df.copy()
+#     df_cleaned["CGPA"] = pd.to_numeric(df_cleaned["CGPA"], errors="coerce")
+
+#     # --- Sheet Creation ---
+#     ws_main = wb.active
+#     ws_main.title = "Condensed Result"
+#     ws_failures = wb.create_sheet("Subject-wise Failures Students")
+#     ws_topper = wb.create_sheet("Low Achievers Students") 
+#     ws_failstudents = wb.create_sheet("Fail Student Details Students")
+#     ws_backlog = wb.create_sheet("All Backlog Summary")
+#     ws_sgpa_summary = wb.create_sheet("SGPA Summary")
+    
+#     # --- Headers for Main and Fail Details Sheets ---
+#     subject_fields = []
+#     for i in range(1, 16):
+#         subject_fields += [f"Sub{i} Code", f"Sub{i} Name", f"Sub{i} Type", f"Sub{i} IA", f"Sub{i} ESE", f"Sub{i} Total", f"Sub{i} Grade", f"Sub{i} Credit"]
+
+#     main_headers = ["Reg No", "Name", "Father", "Mother", "College", "Course"] + SGPA_CGPA_HEADERS + ["Back Paper Count"] + subject_fields
+    
+#     # ------------------- 1. Condensed Result (Main Sheet) -------------------
+#     df_main_export = df_cleaned.drop(columns=['Detailed Subjects List'], errors='ignore')
+#     ws_main.append(main_headers)
+    
+#     for index, row in df_main_export.iterrows():
+#         row_list = [row.get(h, '') for h in main_headers]
+#         ws_main.append(row_list)
+
+#     # ------------------- 2. Subject-wise Failures Students -------------------
+#     ws_failures.append(["Subject Code", "Subject Name", "Student Reg No", "Student Name", "Grade", "Type"])
+#     for index, row in df_cleaned[df_cleaned['Back Paper Count'] > 0].iterrows():
+#         for sub in row['Detailed Subjects List']:
+#             if sub['Grade'].upper() == 'F':
+#                 ws_failures.append([sub['Code'], sub['Name'], row['Reg No'], row['Name'], sub['Grade'], sub['Type']])
+
+#     # ------------------- 3. Low Achievers Students (CGPA >= 5.0) -------------------
+#     topper_df = df_cleaned[df_cleaned["CGPA"] >= 5.0].sort_values(by="CGPA", ascending=False)
+#     ws_topper.append(["Reg No", "Name", "CGPA"])
+#     for index, row in topper_df[['Reg No', 'Name', 'CGPA']].iterrows():
+#         ws_topper.append(list(row))
+        
+#     # ------------------- 4. Fail Student Details Students (Back Count > 0) -------------------
+#     fail_df = df_cleaned[df_cleaned['Back Paper Count'] > 0]
+#     ws_failstudents.append(main_headers)
+#     for index, row in fail_df.iterrows():
+#         row_list = [row.get(h, '') for h in main_headers]
+#         ws_failstudents.append(row_list)
+#     ws_failstudents.append([])
+#     ws_failstudents.append(["Total Failed/Back Students", len(fail_df)])
+
+#     # ------------------- 5. All Backlog Summary -------------------
+#     total_back = len(df_cleaned[df_cleaned['Back Paper Count'] > 0])
+#     zero_back = len(df_cleaned[df_cleaned['Back Paper Count'] == 0])
+    
+#     back_counts = df_cleaned['Back Paper Count'].value_counts().reset_index()
+#     back_counts.columns = ['Backlog Count', 'Number of Students']
+    
+#     ws_backlog.append(["Backlog Count", "Number of Students"])
+#     ws_backlog.append(["Zero Backlog", zero_back])
+#     for index, row in back_counts[back_counts['Backlog Count'] > 0].iterrows():
+#         ws_backlog.append([row['Backlog Count'], row['Number of Students']])
+    
+#     # 6. SGPA Summary
+#     sgpa_ranges = {">9.0": 0, "8.0-9.0": 0, "7.0-8.0": 0, "6.0-7.0": 0, "5.0-6.0": 0}
+#     for cgpa in df_cleaned['CGPA'].dropna():
+#         if cgpa > 9.0: sgpa_ranges[">9.0"] += 1
+#         elif 8.0 <= cgpa <= 9.0: sgpa_ranges["8.0-9.0"] += 1
+#         elif 7.0 <= cgpa < 8.0: sgpa_ranges["7.0-8.0"] += 1
+#         elif 6.0 <= cgpa < 7.0: sgpa_ranges["6.0-7.0"] += 1
+#         elif 5.0 <= cgpa < 6.0: sgpa_ranges["5.0-6.0"] += 1
+    
+#     ws_sgpa_summary.append(["SGPA Range", "Student Count"])
+#     for k, v in sgpa_ranges.items():
+#         ws_sgpa_summary.append([k, v])
+        
+#     # Final Save
+#     wb.save(output_file)
+#     st.success("Detailed multi-sheet Excel report created successfully!")
+
+
+# import requests
+# from bs4 import BeautifulSoup
+# from concurrent.futures import ThreadPoolExecutor
+# import streamlit as st
+# import pandas as pd
+# import time
+# from typing import Optional, Dict, Any, List
+
+# # --- Imports for Multi-Sheet Excel (Cloud-Friendly) ---
+# import openpyxl
+# from openpyxl.utils.dataframe import dataframe_to_rows
+# # -----------------------------------------------------
+
+# # --- Constants for Semester Data ---
+# SGPA_CGPA_HEADERS = [
+#     "SGPA Sem I", "SGPA Sem II", "SGPA Sem III", "SGPA Sem IV",
+#     "SGPA Sem V", "SGPA Sem VI", "SGPA Sem VII", "SGPA Sem VIII",
+#     "Final CGPA"
+# ]
+
+
+# # --- Core Scraper Logic (Requests/BS4) ---
+# def fetch_and_parse_result(base_url, registration_no, retries=1, backoff_factor=1):
+#     """Fetches result for a single registration number, extracts ALL details including subject marks and all semester SGPAs/CGPAs."""
+#     url = f"{base_url}{registration_no}" 
+#     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    
+#     for attempt in range(retries):
+#         try:
+#             response = requests.get(url, headers=headers, timeout=10)
+#             response.raise_for_status()
+#             soup = BeautifulSoup(response.text, "html.parser")
+            
+#             # 1. Check for success marker
+#             if not soup.select_one("#ContentPlaceHolder1_DataList1_RegistrationNoLabel_0"):
+#                  return None
+
+#             result = {
+#                 "Reg No": soup.select_one("#ContentPlaceHolder1_DataList1_RegistrationNoLabel_0").text.strip(),
+#                 "Name": soup.select_one("#ContentPlaceHolder1_DataList1_StudentNameLabel_0").text.strip(),
+#                 "Father": soup.select_one("#ContentPlaceHolder1_DataList1_FatherNameLabel_0").text.strip(),
+#                 "Mother": soup.select_one("#ContentPlaceHolder1_DataList1_MotherNameLabel_0").text.strip(),
+#                 "College": soup.select_one("#ContentPlaceHolder1_DataList1_CollegeNameLabel_0").text.strip(),
+#                 "Course": soup.select_one("#ContentPlaceHolder1_DataList1_CourseLabel_0").text.strip(),
+#                 "Back Paper Count": 0,
+#                 "Detailed Subjects List": [] 
+#             }
+            
+#             # --- 2. Extract All Semester SGPAs/CGPA (GridView3) ---
+#             sgpa_table = soup.select_one("#ContentPlaceHolder1_GridView3")
+            
+#             for header in SGPA_CGPA_HEADERS: result[header] = 'NA'
+#             result["CGPA"] = 'NA'
+
+#             if sgpa_table:
+#                 sgpa_values = sgpa_table.find_all("tr")[-1].find_all("td")
+                
+#                 if len(sgpa_values) >= 9:
+#                     for i, header in enumerate(SGPA_CGPA_HEADERS):
+#                          result[header] = sgpa_values[i].text.strip()
+                    
+#                     # Fix: Ensure CGPA is the final result for sorting
+#                     result["CGPA"] = result["Final CGPA"] if result["Final CGPA"] != 'NA' else result[SGPA_CGPA_HEADERS[-2]]
+            
+            
+#             # --- 3. Detailed Subject Tables Scraping (Including IA/ESE) ---
+            
+#             def extract_subjects_from_table(table_id, subject_type):
+#                 subjects = []
+#                 table = soup.select_one(f"#{table_id}")
+#                 if table:
+#                     rows = table.find_all("tr")[1:] 
+#                     for row in rows:
+#                         cols = row.find_all("td")
+#                         if len(cols) >= 8:
+#                             subjects.append({
+#                                 "Code": cols[0].text.strip(),
+#                                 "Name": cols[1].text.strip(),
+#                                 "Type": subject_type,
+#                                 "IA": cols[3].text.strip(), 
+#                                 "ESE": cols[2].text.strip(),
+#                                 "Total": cols[4].text.strip(),
+#                                 "Grade": cols[5].text.strip(),
+#                                 "Credit": cols[6].text.strip()
+#                             })
+#                 return subjects
+
+#             all_subjects = extract_subjects_from_table("ContentPlaceHolder1_GridView1", "Theory") 
+#             all_subjects += extract_subjects_from_table("ContentPlaceHolder1_GridView2", "Practical")
+            
+#             back_count = 0
+            
+#             # Flatten detailed subjects for the main DataFrame/Excel output
+#             for i, sub in enumerate(all_subjects):
+#                 result["Detailed Subjects List"].append(sub)
+                
+#                 # Add columns to main result for display
+#                 for key in ["Code", "Name", "Type", "IA", "ESE", "Total", "Grade", "Credit"]:
+#                     result[f"Sub{i+1} {key}"] = sub[key]
+                
+#                 if sub["Grade"].upper() == "F" or sub["Grade"].upper() == "NE": # Include NE (Not Eligible) as a fail case
+#                     back_count += 1
+
+#             result["Back Paper Count"] = back_count
+            
+#             # Fill remaining columns up to 15 subjects 
+#             for i in range(len(all_subjects), 15):
+#                 for key in ["Code", "Name", "Type", "IA", "ESE", "Total", "Grade", "Credit"]:
+#                     result[f"Sub{i+1} {key}"] = ""
+            
+#             return result
+        
+#         except (requests.exceptions.RequestException, AttributeError, ValueError) as e:
+#             if attempt < retries - 1:
+#                 time.sleep(backoff_factor * (2 ** attempt))
+#             return None
+
+
+# def fetch_all_results(base_url, start_reg, end_reg):
+#     results = []
+#     reg_numbers = list(range(start_reg, end_reg + 1))
+#     MAX_WORKERS = min(10, len(reg_numbers)) 
+    
+#     progress_bar = st.progress(0)
+    
+#     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+#         futures = {executor.submit(fetch_and_parse_result, base_url, reg_no): reg_no for reg_no in reg_numbers}
+        
+#         for i, future in enumerate(futures):
+#             result = future.result()
+#             if result:
+#                 results.append(result)
+            
+#             progress_bar.progress((i + 1) / len(reg_numbers))
+            
+#     progress_bar.empty()
+#     return results
+
+
+# # --- Sorting Logic (No changes) ---
+# def sort_by_current_cgpa(df):
+#     df["CGPA"] = pd.to_numeric(df["CGPA"], errors="coerce")
+#     return df.sort_values(by="CGPA", ascending=False, na_position='last')
+
+# def sort_by_latest_semester_grade(df):
+#     df_sorted = df.copy()
+    
+#     for header in reversed(SGPA_CGPA_HEADERS[:-1]): 
+#         df_sorted[header] = pd.to_numeric(df_sorted[header], errors='coerce')
+        
+#     latest_sgpa_column = None
+#     for header in reversed(SGPA_CGPA_HEADERS[:-1]):
+#         if not df_sorted[header].isna().all():
+#             latest_sgpa_column = header
+#             break
+            
+#     if latest_sgpa_column:
+#         return df_sorted.sort_values(by=latest_sgpa_column, ascending=False, na_position='last')
+#     else:
+#         return sort_by_current_cgpa(df)
+
+
+# # --- Multi-Sheet Excel Export Function (No changes) ---
+# def export_multi_sheet_excel(df: pd.DataFrame, output_file: str):
+#     """
+#     Creates the multi-sheet Excel report with detailed breakdown matching your requirements.
+#     """
+#     st.info("Generating detailed multi-sheet Excel report (XLSX)...")
+    
+#     wb = openpyxl.Workbook()
+#     df_cleaned = df.copy()
+#     df_cleaned["CGPA"] = pd.to_numeric(df_cleaned["CGPA"], errors="coerce")
+
+#     # --- Sheet Creation ---
+#     ws_main = wb.active
+#     ws_main.title = "Condensed Result"
+#     ws_failures = wb.create_sheet("Subject-wise Failures Students")
+#     ws_topper = wb.create_sheet("Low Achievers Students") 
+#     ws_failstudents = wb.create_sheet("Fail Student Details Students")
+#     ws_backlog = wb.create_sheet("All Backlog Summary")
+#     ws_sgpa_summary = wb.create_sheet("SGPA Summary")
+    
+#     # --- Headers for Main and Fail Details Sheets ---
+#     subject_fields = []
+#     for i in range(1, 16):
+#         subject_fields += [f"Sub{i} Code", f"Sub{i} Name", f"Sub{i} Type", f"Sub{i} IA", f"Sub{i} ESE", f"Sub{i} Total", f"Sub{i} Grade", f"Sub{i} Credit"]
+
+#     main_headers = ["Reg No", "Name", "Father", "Mother", "College", "Course"] + SGPA_CGPA_HEADERS + ["Back Paper Count"] + subject_fields
+    
+#     # ------------------- 1. Condensed Result (Main Sheet) -------------------
+#     df_main_export = df_cleaned.drop(columns=['Detailed Subjects List'], errors='ignore')
+#     ws_main.append(main_headers)
+    
+#     for index, row in df_main_export.iterrows():
+#         row_list = [row.get(h, '') for h in main_headers]
+#         ws_main.append(row_list)
+
+#     # ------------------- 2. Subject-wise Failures Students -------------------
+#     ws_failures.append(["Subject Code", "Subject Name", "Student Reg No", "Student Name", "Grade", "Type"])
+#     for index, row in df_cleaned[df_cleaned['Back Paper Count'] > 0].iterrows():
+#         for sub in row['Detailed Subjects List']:
+#             if sub['Grade'].upper() == 'F' or sub['Grade'].upper() == 'NE':
+#                 ws_failures.append([sub['Code'], sub['Name'], row['Reg No'], row['Name'], sub['Grade'], sub['Type']])
+
+#     # ------------------- 3. Low Achievers Students (CGPA >= 5.0) -------------------
+#     topper_df = df_cleaned[df_cleaned["CGPA"] >= 5.0].sort_values(by="CGPA", ascending=False)
+#     ws_topper.append(["Reg No", "Name", "CGPA"])
+#     for index, row in topper_df[['Reg No', 'Name', 'CGPA']].iterrows():
+#         ws_topper.append(list(row))
+        
+#     # ------------------- 4. Fail Student Details Students (Back Count > 0) -------------------
+#     fail_df = df_cleaned[df_cleaned['Back Paper Count'] > 0]
+#     ws_failstudents.append(main_headers)
+#     for index, row in fail_df.iterrows():
+#         row_list = [row.get(h, '') for h in main_headers]
+#         ws_failstudents.append(row_list)
+#     ws_failstudents.append([])
+#     ws_failstudents.append(["Total Failed/Back Students", len(fail_df)])
+
+#     # ------------------- 5. All Backlog Summary -------------------
+#     total_back = len(df_cleaned[df_cleaned['Back Paper Count'] > 0])
+#     zero_back = len(df_cleaned[df_cleaned['Back Paper Count'] == 0])
+    
+#     back_counts = df_cleaned['Back Paper Count'].value_counts().reset_index()
+#     back_counts.columns = ['Backlog Count', 'Number of Students']
+    
+#     ws_backlog.append(["Backlog Count", "Number of Students"])
+#     ws_backlog.append(["Zero Backlog", zero_back])
+#     for index, row in back_counts[back_counts['Backlog Count'] > 0].iterrows():
+#         ws_backlog.append([row['Backlog Count'], row['Number of Students']])
+    
+#     # 6. SGPA Summary
+#     sgpa_ranges = {">9.0": 0, "8.0-9.0": 0, "7.0-8.0": 0, "6.0-7.0": 0, "5.0-6.0": 0}
+#     for cgpa in df_cleaned['CGPA'].dropna():
+#         if cgpa > 9.0: sgpa_ranges[">9.0"] += 1
+#         elif 8.0 <= cgpa <= 9.0: sgpa_ranges["8.0-9.0"] += 1
+#         elif 7.0 <= cgpa < 8.0: sgpa_ranges["7.0-8.0"] += 1
+#         elif 6.0 <= cgpa < 7.0: sgpa_ranges["6.0-7.0"] += 1
+#         elif 5.0 <= cgpa < 6.0: sgpa_ranges["5.0-6.0"] += 1
+    
+#     ws_sgpa_summary.append(["SGPA Range", "Student Count"])
+#     for k, v in sgpa_ranges.items():
+#         ws_sgpa_summary.append([k, v])
+        
+#     # Final Save
+#     wb.save(output_file)
+#     st.success("Detailed multi-sheet Excel report created successfully!")
+
+
 import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
@@ -378,7 +875,7 @@ import openpyxl
 from openpyxl.utils.dataframe import dataframe_to_rows
 # -------------------------------------
 
-# --- Constants for Semester Data ---
+# --- Constants for Semester Data (Must be the same as url_config.py) ---
 SGPA_CGPA_HEADERS = [
     "SGPA Sem I", "SGPA Sem II", "SGPA Sem III", "SGPA Sem IV",
     "SGPA Sem V", "SGPA Sem VI", "SGPA Sem VII", "SGPA Sem VIII",
